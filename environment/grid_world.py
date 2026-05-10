@@ -6,23 +6,41 @@ from environment.fire import spread_fire
 
 from utils.constants import *
 
+from config import *
+
 
 class GridWorld:
 
-    def __init__(self,
-                 grid_size,
-                 num_agents,
-                 fire_spread_prob):
+    def __init__(self):
 
-        self.grid_size = grid_size
-        self.num_agents = num_agents
-        self.fire_spread_prob = fire_spread_prob
+        self.grid_size = GRID_SIZE
 
-        self.grid = np.zeros((grid_size, grid_size), dtype=int)
+        self.num_agents = NUM_AGENTS
+
+        self.fire_spread_prob = FIRE_SPREAD_PROB
+
+        self.reset()
+
+    def reset(self):
+
+        self.grid = np.zeros(
+            (self.grid_size, self.grid_size),
+            dtype=np.int32
+        )
 
         self.agents = []
 
-        self.initialize_environment()
+        self.place_obstacles()
+
+        self.place_exits()
+
+        self.place_fire()
+
+        self.place_agents()
+
+        self.steps = 0
+
+        return self.get_all_observations()
 
     def random_empty_cell(self):
 
@@ -32,22 +50,40 @@ class GridWorld:
             y = random.randint(0, self.grid_size - 1)
 
             if self.grid[x][y] == EMPTY:
-                return (x, y)
 
-    def random_empty_boundary_cell(self):
+                occupied = False
+
+                for agent in self.agents:
+
+                    if agent.position == (x, y):
+                        occupied = True
+
+                if not occupied:
+                    return (x, y)
+
+    def random_boundary_cell(self):
 
         while True:
 
-            edge = random.randint(0, 3)
-            if edge == 0:
+            side = random.choice([
+                "top",
+                "bottom",
+                "left",
+                "right"
+            ])
+
+            if side == "top":
                 x = 0
                 y = random.randint(0, self.grid_size - 1)
-            elif edge == 1:
+
+            elif side == "bottom":
                 x = self.grid_size - 1
                 y = random.randint(0, self.grid_size - 1)
-            elif edge == 2:
+
+            elif side == "left":
                 x = random.randint(0, self.grid_size - 1)
                 y = 0
+
             else:
                 x = random.randint(0, self.grid_size - 1)
                 y = self.grid_size - 1
@@ -55,97 +91,251 @@ class GridWorld:
             if self.grid[x][y] == EMPTY:
                 return (x, y)
 
-    def initialize_environment(self):
+    def place_obstacles(self):
 
-        # Obstacles
-        for _ in range(12):
+        for y in range(2, 8):
 
-            x, y = self.random_empty_cell()
-            self.grid[x][y] = OBSTACLE
+            self.grid[4][y] = OBSTACLE
 
-        # Exit Gates
-        for _ in range(2):
+        self.grid[4][5] = EMPTY
 
-            x, y = self.random_empty_boundary_cell()
+        for x in range(1, 6):
+
+            self.grid[x][7] = OBSTACLE
+
+        self.grid[3][7] = EMPTY
+
+    def place_exits(self):
+
+        for _ in range(NUM_EXITS):
+
+            x, y = self.random_boundary_cell()
+
             self.grid[x][y] = EXIT
 
-        # Initial Fire
+    def place_fire(self):
+
         for _ in range(2):
 
             x, y = self.random_empty_cell()
+
             self.grid[x][y] = FIRE
 
-        # Agents
+    def place_agents(self):
+
         for i in range(self.num_agents):
 
             pos = self.random_empty_cell()
 
-            agent = Agent(i, pos)
+            self.agents.append(
+                Agent(i, pos)
+            )
 
-            self.agents.append(agent)
+    def get_local_observation(self, agent):
 
-    def step(self):
+        obs_size = 3
+
+        radius = 1
+
+        obs = np.ones(
+            (obs_size, obs_size),
+            dtype=np.float32
+        )
+
+        ax, ay = agent.position
+
+        for dx in range(-radius, radius + 1):
+
+            for dy in range(-radius, radius + 1):
+
+                nx = ax + dx
+                ny = ay + dy
+
+                ox = dx + radius
+                oy = dy + radius
+
+                if 0 <= nx < self.grid_size and \
+                   0 <= ny < self.grid_size:
+
+                    obs[ox][oy] = self.grid[nx][ny]
+
+        for other_agent in self.agents:
+
+            if other_agent.id == agent.id:
+                continue
+
+            if not other_agent.alive:
+                continue
+
+            x, y = other_agent.position
+
+            rx = x - ax + radius
+            ry = y - ay + radius
+
+            if 0 <= rx < obs_size and \
+               0 <= ry < obs_size:
+
+                obs[rx][ry] = 4
+
+        obs[radius][radius] = 5
+
+        return obs.flatten()
+
+    def get_all_observations(self):
+
+        observations = []
+
+        for agent in self.agents:
+
+            observations.append(
+                self.get_local_observation(agent)
+            )
+
+        return observations
+
+    def step(self, actions):
+
+        rewards = [0 for _ in range(self.num_agents)]
 
         proposed_moves = {}
 
-        # Random movement for now
-        for agent in self.agents:
+        old_positions = {}
+
+        # Action selection
+        for i, agent in enumerate(self.agents):
 
             if not agent.alive or agent.evacuated:
                 continue
 
-            action = random.randint(0, 4)
+            old_positions[i] = agent.position
 
-            new_pos = agent.move(action, self.grid_size)
+            new_pos = agent.move(
+                actions[i],
+                self.grid_size
+            )
 
-            proposed_moves[agent.id] = new_pos
+            proposed_moves[i] = new_pos
 
-        # Collision handling
-        occupied = {}
+        # Collision resolution
+        move_counts = {}
 
         for aid, pos in proposed_moves.items():
 
-            if pos not in occupied:
-                occupied[pos] = [aid]
+            if pos not in move_counts:
+                move_counts[pos] = []
 
-            else:
-                occupied[pos].append(aid)
+            move_counts[pos].append(aid)
 
-        # Apply valid moves
-        for pos, ids in occupied.items():
+        for pos, ids in move_counts.items():
 
-            if len(ids) == 1:
+            if len(ids) > 1:
 
-                aid = ids[0]
+                for aid in ids:
 
-                agent = self.agents[aid]
+                    rewards[aid] -= 10
 
-                x, y = pos
+                    proposed_moves[aid] = \
+                        old_positions[aid]
 
-                if self.grid[x][y] == OBSTACLE:
-                    continue
+        # Apply moves
+        for aid, pos in proposed_moves.items():
 
-                agent.position = pos
+            agent = self.agents[aid]
 
-                if self.grid[x][y] == FIRE:
-                    agent.alive = False
+            x, y = pos
 
-                if self.grid[x][y] == EXIT:
+            if self.grid[x][y] == OBSTACLE:
+
+                rewards[aid] -= 2
+
+                continue
+
+            agent.position = pos
+
+            rewards[aid] -= 1
+
+            if self.grid[x][y] == FIRE:
+
+                agent.alive = False
+
+                rewards[aid] -= 50
+
+                for j in range(self.num_agents):
+
+                    if j != aid:
+                        rewards[j] -= 10
+
+            if self.grid[x][y] == EXIT:
+
+                if not agent.evacuated:
+
                     agent.evacuated = True
 
-        # Spread fire
+                    rewards[aid] += 50
+
+                    for j in range(self.num_agents):
+
+                        if j != aid:
+                            rewards[j] += 8
+
+        # Fire spread
         self.grid = spread_fire(
             self.grid,
             self.fire_spread_prob
         )
 
-        # Fire kills agents
-        for agent in self.agents:
+        # Fire proximity penalty
+        for i, agent in enumerate(self.agents):
 
             if not agent.alive:
                 continue
 
             x, y = agent.position
 
-            if self.grid[x][y] == FIRE:
-                agent.alive = False
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+
+                    nx = x + dx
+                    ny = y + dy
+
+                    if 0 <= nx < self.grid_size and \
+                       0 <= ny < self.grid_size:
+
+                        if self.grid[nx][ny] == FIRE:
+
+                            rewards[i] -= 5
+
+        self.steps += 1
+
+        done = self.is_done()
+
+        if self.all_safe():
+
+            rewards = [r + 100 for r in rewards]
+
+        observations = self.get_all_observations()
+
+        return observations, rewards, done
+
+    def all_safe(self):
+
+        for agent in self.agents:
+
+            if not agent.evacuated:
+                return False
+
+        return True
+
+    def is_done(self):
+
+        if self.steps >= MAX_STEPS:
+            return True
+
+        alive_exists = False
+
+        for agent in self.agents:
+
+            if agent.alive and not agent.evacuated:
+                alive_exists = True
+
+        return not alive_exists
