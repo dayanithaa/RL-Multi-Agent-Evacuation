@@ -1,0 +1,18 @@
+EMPTY = 0
+OBSTACLE = 1
+FIRE = 2
+EXIT = 3
+
+CELL_SIZE = 60
+
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GRAY = (100, 100, 100)
+
+RED = (220, 50, 50)
+ORANGE = (255, 140, 0)
+
+GREEN = (50, 200, 50)
+BLUE = (50, 50, 255)
+
+YELLOW = (255, 255, 0)

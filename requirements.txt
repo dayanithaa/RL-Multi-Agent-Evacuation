@@ -1,0 +1,10 @@
+pygame==2.6.1
+numpy==2.2.5
+
+torch
+torchvision
+
+matplotlib
+tqdm
+
+gymnasium
