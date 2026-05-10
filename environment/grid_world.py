@@ -34,6 +34,27 @@ class GridWorld:
             if self.grid[x][y] == EMPTY:
                 return (x, y)
 
+    def random_empty_boundary_cell(self):
+
+        while True:
+
+            edge = random.randint(0, 3)
+            if edge == 0:
+                x = 0
+                y = random.randint(0, self.grid_size - 1)
+            elif edge == 1:
+                x = self.grid_size - 1
+                y = random.randint(0, self.grid_size - 1)
+            elif edge == 2:
+                x = random.randint(0, self.grid_size - 1)
+                y = 0
+            else:
+                x = random.randint(0, self.grid_size - 1)
+                y = self.grid_size - 1
+
+            if self.grid[x][y] == EMPTY:
+                return (x, y)
+
     def initialize_environment(self):
 
         # Obstacles
@@ -45,7 +66,7 @@ class GridWorld:
         # Exit Gates
         for _ in range(2):
 
-            x, y = self.random_empty_cell()
+            x, y = self.random_empty_boundary_cell()
             self.grid[x][y] = EXIT
 
         # Initial Fire
